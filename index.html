@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Stern IT Service Desk</title>
+    <link rel="stylesheet" href="style.css">
+  </head>
+  <body>
+    <header class="app-header">
+      <div class="brand">
+        <span class="brand-mark">IT</span>
+        <div>
+          <p>Internal Repository</p>
+          <h1>Stern IT Service Desk</h1>
+        </div>
+      </div>
+      <div class="header-actions">
+        <span id="dataSourceStatus" class="data-status">CSV mode</span>
+        <button id="newDraft" class="button" type="button">New Draft</button>
+        <button id="toggleDrafts" class="button secondary" type="button">Drafts</button>
+        <label class="button secondary" for="csvUpload">Import CSV</label>
+        <input id="csvUpload" class="visually-hidden" type="file" accept=".csv,text/csv">
+        <button id="exportCsv" class="button" type="button">Export CSV</button>
+      </div>
+    </header>
+
+    <main class="app-shell">
+      <section class="search-panel" aria-label="Inquiry search">
+        <label class="search-label" for="query">Inquiry</label>
+        <div class="search-row">
+          <input id="query" type="search" placeholder="Type a question, error, process, service, or keyword">
+          <button id="clearQuery" class="button secondary" type="button">Clear</button>
+        </div>
+        <div class="filters">
+          <label>
+            University Service
+            <select id="departmentFilter"></select>
+          </label>
+          <label>
+            Escalation
+            <select id="systemFilter"></select>
+          </label>
+          <label>
+            Output
+            <select id="outputMode">
+              <option value="auto" selected>Best Fit</option>
+              <option value="solution">Solution</option>
+              <option value="checklist">Checklist</option>
+              <option value="sop">SOP</option>
+            </select>
+          </label>
+        </div>
+      </section>
+
+      <section class="content-grid">
+        <aside id="draftsPanel" class="drafts-panel hidden" aria-label="Draft records">
+          <div class="section-title">
+            <p>Drafts</p>
+            <h2 id="draftCount">0 drafts</h2>
+          </div>
+          <div id="draftList" class="draft-list"></div>
+        </aside>
+
+        <aside class="results-panel" aria-label="Search results">
+          <div class="section-title">
+            <p>Matches</p>
+            <h2 id="matchCount">0 records</h2>
+          </div>
+          <div id="results" class="results"></div>
+        </aside>
+
+        <section class="answer-panel" aria-live="polite">
+          <div class="answer-head">
+            <div class="answer-title">
+              <h2 id="recordTitle">No record selected</h2>
+            </div>
+            <div class="answer-actions">
+              <button id="publishDraft" class="button hidden" type="button">Publish Draft</button>
+              <button id="deleteDraft" class="button tertiary hidden" type="button">Delete Draft</button>
+              <button id="toggleEditor" class="button tertiary" type="button">Edit Record</button>
+            </div>
+          </div>
+
+          <div id="answer" class="answer"></div>
+
+          <form id="editor" class="editor hidden">
+            <div class="editor-grid">
+              <label>
+                Title
+                <input name="title" type="text">
+              </label>
+              <label>
+                University Service
+                <select name="department"></select>
+              </label>
+              <label>
+                Escalation Route
+                <select name="system"></select>
+              </label>
+              <label>
+                Related KBs / Source
+                <input name="source" type="text">
+              </label>
+              <label class="wide">
+                Main Issues
+                <textarea name="issues" rows="3"></textarea>
+              </label>
+              <label class="wide">
+                Resolution / Steps
+                <textarea name="solution" rows="6"></textarea>
+              </label>
+              <label class="wide">
+                More Information
+                <textarea name="moreInfo" rows="4"></textarea>
+              </label>
+              <label class="wide">
+                Attachments / Images
+                <textarea name="attachments" rows="2"></textarea>
+              </label>
+            </div>
+            <div class="editor-actions">
+              <button class="button" type="submit">Save Draft</button>
+              <button id="closeEditor" class="button tertiary" type="button">Close</button>
+            </div>
+          </form>
+
+          <footer class="record-meta-footer">
+            <p id="recordMeta">Source pending</p>
+            <p id="recordReviewMeta" class="record-review-meta">Last updated pending</p>
+          </footer>
+        </section>
+      </section>
+    </main>
+
+    <script src="config.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
