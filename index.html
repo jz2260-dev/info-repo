@@ -151,6 +151,18 @@
       </section>
     </main>
 
+    <div id="confirmDialog" class="confirm-dialog hidden" role="dialog" aria-modal="true" aria-labelledby="confirmDialogTitle" aria-describedby="confirmDialogBody">
+      <div class="confirm-dialog-backdrop"></div>
+      <section class="confirm-dialog-panel" role="document">
+        <h2 id="confirmDialogTitle">Confirm action</h2>
+        <p id="confirmDialogBody">This action needs confirmation.</p>
+        <div class="confirm-dialog-actions">
+          <button id="cancelConfirmDialog" class="button secondary" type="button">Cancel</button>
+          <button id="confirmDialogAction" class="button danger" type="button">Confirm</button>
+        </div>
+      </section>
+    </div>
+
     <script src="config.js"></script>
     <script src="app.js"></script>
   </body>

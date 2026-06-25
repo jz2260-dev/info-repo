@@ -144,6 +144,55 @@ textarea:focus-visible {
   color: var(--red);
 }
 
+.confirm-dialog {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+}
+
+.confirm-dialog-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(24, 16, 32, 0.46);
+}
+
+.confirm-dialog-panel {
+  position: relative;
+  z-index: 1;
+  width: min(420px, 100%);
+  display: grid;
+  gap: 12px;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 24px 70px rgba(24, 16, 32, 0.22);
+}
+
+.confirm-dialog-panel h2 {
+  margin: 0;
+  font-size: 20px;
+  line-height: 1.2;
+}
+
+.confirm-dialog-panel p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.confirm-dialog-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 4px;
+}
+
 .data-status {
   min-height: 38px;
   display: inline-flex;
@@ -228,6 +277,13 @@ textarea:focus-visible {
   text-align: left;
 }
 
+.recovery-card {
+  align-content: start;
+  max-height: 188px;
+  min-width: 0;
+  overflow: hidden;
+}
+
 .draft-empty {
   border: 1px dashed var(--line);
   border-radius: 8px;
@@ -252,6 +308,7 @@ textarea:focus-visible {
   align-items: flex-start;
   justify-content: space-between;
   gap: 10px;
+  min-width: 0;
 }
 
 .draft-card h3,
@@ -261,12 +318,29 @@ textarea:focus-visible {
   line-height: 1.25;
 }
 
+.recovery-card h3 {
+  min-width: 0;
+  display: -webkit-box;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
 .draft-card p,
 .recovery-card p {
   margin: 0;
   color: var(--muted);
   font-size: 12px;
   line-height: 1.35;
+}
+
+.recovery-card > p:not(.recovery-card-note) {
+  display: -webkit-box;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
 }
 
 .draft-card-meta,
@@ -279,6 +353,19 @@ textarea:focus-visible {
   font-weight: 700;
 }
 
+.recovery-card-meta {
+  max-height: 36px;
+  overflow: hidden;
+}
+
+.recovery-card-meta span {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .draft-pill,
 .recovery-pill {
   border: 1px solid var(--line);
@@ -288,6 +375,7 @@ textarea:focus-visible {
   color: var(--blue);
   font-size: 11px;
   font-weight: 800;
+  flex: 0 0 auto;
 }
 
 .recovery-card.deleted .recovery-pill {
@@ -654,7 +742,11 @@ select,
   font-size: 12px;
   font-weight: 700;
   line-height: 1.45;
+  display: -webkit-box;
+  overflow: hidden;
   overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .steps {

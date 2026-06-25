@@ -89,6 +89,7 @@ Opened records are quietly logged to `Record Views`; this is not shown in the we
 
 - New records should start as drafts.
 - Drafts can have multiple saved versions.
+- Draft editing autosaves meaningful changes after a short pause. Manual Save Draft Version still creates an intentional version snapshot.
 - Drafts can be deleted to reduce clutter.
 - Publishing a draft saves it into `Knowledge` as a record.
 - Editing an existing record saves back to Google Sheets when in Google Sheet mode.

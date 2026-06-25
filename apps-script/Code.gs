@@ -163,6 +163,10 @@ function doPost(e) {
       return jsonResponse({ ok: true, draft: saveDraft_(payload.draft || {}) });
     }
 
+    if (action === "autosaveDraft") {
+      return jsonResponse({ ok: true, draft: saveDraft_(payload.draft || {}, { autosave: true }) });
+    }
+
     if (action === "deleteDraft") {
       return jsonResponse({ ok: true, deleted: deleteDraft_(payload.draftId || "") });
     }
@@ -554,7 +558,8 @@ function listDrafts_() {
     .sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")));
 }
 
-function saveDraft_(incomingDraft) {
+function saveDraft_(incomingDraft, options) {
+  const autosave = Boolean(options && options.autosave);
   const lock = LockService.getDocumentLock();
   lock.waitLock(30000);
 
@@ -566,18 +571,28 @@ function saveDraft_(incomingDraft) {
       ? sheet.getRange(2, 1, sheet.getLastRow() - 1, headers.length).getValues()
       : [];
     const draftId = value_(incomingDraft.draftId) || Utilities.getUuid();
-    const existingDrafts = rows.map((row) => rowToDraft_(headers, row)).filter((draft) => draft.draftId === draftId);
-    const latestDraft = latestDraftVersion_(existingDrafts);
+    const existingDrafts = rows
+      .map((row, index) => ({ rowNumber: index + 2, draft: rowToDraft_(headers, row), row }))
+      .filter((item) => item.draft.draftId === draftId);
+    const latestItem = existingDrafts
+      .slice()
+      .sort((a, b) => Number(b.draft.version || 0) - Number(a.draft.version || 0))[0] || null;
+    const latestDraft = latestItem ? latestItem.draft : null;
+    const incomingVersion = Number(incomingDraft.version || 0);
+    const autosaveItem = autosave && incomingVersion
+      ? existingDrafts.find((item) => Number(item.draft.version || 0) === incomingVersion) || null
+      : null;
+    const baseDraft = autosaveItem ? autosaveItem.draft : latestDraft;
     const record = normalizeIncomingRecord_(incomingDraft.record || incomingDraft);
     const now = new Date().toISOString();
     const editor = getEditorEmail_();
     const draft = {
       draftId,
       recordId: value_(incomingDraft.recordId || record.id),
-      version: latestDraft ? Number(latestDraft.version || 0) + 1 : 1,
+      version: autosaveItem ? Number(autosaveItem.draft.version || 1) : (latestDraft ? Number(latestDraft.version || 0) + 1 : 1),
       status: "Draft",
-      createdAt: latestDraft ? latestDraft.createdAt : now,
-      createdBy: latestDraft ? latestDraft.createdBy : editor,
+      createdAt: baseDraft ? baseDraft.createdAt : now,
+      createdBy: baseDraft ? baseDraft.createdBy : editor,
       updatedAt: now,
       updatedBy: editor,
       publishedAt: "",
@@ -585,9 +600,16 @@ function saveDraft_(incomingDraft) {
       record
     };
 
-    sheet.appendRow(draftToRow_(headers, draft));
-    const savedDraft = rowToDraft_(headers, draftToRow_(headers, draft));
-    appendAudit_("draft_save", null, savedDraft.record, `Saved draft ${draftId} version ${draft.version}.`);
+    const nextRow = draftToRow_(headers, draft);
+    if (autosaveItem) {
+      sheet.getRange(autosaveItem.rowNumber, 1, 1, headers.length).setValues([nextRow]);
+    } else {
+      sheet.appendRow(nextRow);
+    }
+    const savedDraft = rowToDraft_(headers, nextRow);
+    if (!autosave) {
+      appendAudit_("draft_save", null, savedDraft.record, `Saved draft ${draftId} version ${draft.version}.`);
+    }
     return savedDraft;
   } finally {
     lock.releaseLock();

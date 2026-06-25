@@ -85,6 +85,12 @@ let pendingViewKey = "";
 let pendingResultFocusId = "";
 let archiveReasonRecordId = "";
 let archiveReasonText = "";
+const DRAFT_AUTOSAVE_DELAY = 1800;
+let draftAutosaveTimer = 0;
+let draftAutosaveInFlight = false;
+let draftAutosaveQueued = false;
+let lastDraftAutosaveSignature = "";
+let activeConfirmDialog = null;
 const trackedRecordViews = new Map();
 
 const appConfig = window.APP_CONFIG || {};
@@ -168,7 +174,12 @@ const fields = {
   toggleEditor: document.querySelector("#toggleEditor"),
   archiveReasonPanel: document.querySelector("#archiveReasonPanel"),
   archiveReasonInput: document.querySelector("#archiveReason"),
-  cancelArchiveReason: document.querySelector("#cancelArchiveReason")
+  cancelArchiveReason: document.querySelector("#cancelArchiveReason"),
+  confirmDialog: document.querySelector("#confirmDialog"),
+  confirmDialogTitle: document.querySelector("#confirmDialogTitle"),
+  confirmDialogBody: document.querySelector("#confirmDialogBody"),
+  cancelConfirmDialog: document.querySelector("#cancelConfirmDialog"),
+  confirmDialogAction: document.querySelector("#confirmDialogAction")
 };
 
 function setDataStatus(text, state = "ok") {
@@ -176,6 +187,38 @@ function setDataStatus(text, state = "ok") {
   fields.dataStatus.textContent = text;
   fields.dataStatus.classList.toggle("warning", state === "warning");
   fields.dataStatus.classList.toggle("error", state === "error");
+}
+
+function closeConfirmDialog(confirmed = false) {
+  if (!activeConfirmDialog) return;
+  const { resolve, returnFocus } = activeConfirmDialog;
+  activeConfirmDialog = null;
+  fields.confirmDialog?.classList.add("hidden");
+  resolve(confirmed);
+  window.requestAnimationFrame(() => returnFocus?.focus?.());
+}
+
+function openConfirmDialog({ title, body, confirmText = "Confirm", danger = true }) {
+  if (!fields.confirmDialog) return Promise.resolve(window.confirm(body || title || "Confirm this action?"));
+
+  if (activeConfirmDialog) closeConfirmDialog(false);
+
+  const returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  fields.confirmDialogTitle.textContent = title;
+  fields.confirmDialogBody.textContent = body;
+  fields.confirmDialogAction.textContent = confirmText;
+  fields.confirmDialogAction.className = danger ? "button danger" : "button";
+  fields.confirmDialog.classList.remove("hidden");
+
+  return new Promise((resolve) => {
+    activeConfirmDialog = { resolve, returnFocus };
+    window.requestAnimationFrame(() => fields.cancelConfirmDialog?.focus());
+  });
+}
+
+function confirmFocusTargets() {
+  if (!fields.confirmDialog || fields.confirmDialog.classList.contains("hidden")) return [];
+  return [fields.cancelConfirmDialog, fields.confirmDialogAction].filter((item) => item && !item.disabled);
 }
 
 function renderLoadingState() {
@@ -343,6 +386,14 @@ async function loadBackendDrafts() {
 async function saveDraftToBackend(draft) {
   const data = await backendRequest({
     action: "saveDraft",
+    draft
+  });
+  return normalizeBackendDraft(data.draft || draft);
+}
+
+async function autosaveDraftToBackend(draft) {
+  const data = await backendRequest({
+    action: "autosaveDraft",
     draft
   });
   return normalizeBackendDraft(data.draft || draft);
@@ -887,6 +938,12 @@ function clearPendingRecordAction() {
   pendingRecordActionExpires = 0;
 }
 
+function clearDraftAutosave() {
+  window.clearTimeout(draftAutosaveTimer);
+  draftAutosaveTimer = 0;
+  draftAutosaveQueued = false;
+}
+
 function clearArchiveReason() {
   archiveReasonRecordId = "";
   archiveReasonText = "";
@@ -916,6 +973,8 @@ function enterDraftWorkspace(selectKey = "") {
   editorOpen = false;
   clearPendingDraftAction();
   clearPendingRecordAction();
+  clearDraftAutosave();
+  lastDraftAutosaveSignature = "";
   clearArchiveReason();
 }
 
@@ -929,6 +988,8 @@ function enterRecordWorkspace(recordId = "") {
   editorOpen = false;
   clearPendingDraftAction();
   clearPendingRecordAction();
+  clearDraftAutosave();
+  lastDraftAutosaveSignature = "";
   clearArchiveReason();
 }
 
@@ -945,6 +1006,8 @@ function enterRecoveryWorkspace(selectKey = "") {
   editorOpen = false;
   clearPendingDraftAction();
   clearPendingRecordAction();
+  clearDraftAutosave();
+  lastDraftAutosaveSignature = "";
   clearArchiveReason();
 }
 
@@ -1009,10 +1072,12 @@ function createLocalDraft() {
   editorOpen = true;
   clearPendingDraftAction();
   clearPendingRecordAction();
+  clearDraftAutosave();
+  lastDraftAutosaveSignature = "";
   render();
 }
 
-function rememberSavedDraft(savedDraft) {
+function rememberSavedDraft(savedDraft, selectSaved = true) {
   drafts = [
     savedDraft,
     ...drafts.filter((draft) => {
@@ -1020,7 +1085,9 @@ function rememberSavedDraft(savedDraft) {
       return draftKey(draft) !== draftKey(savedDraft);
     })
   ];
-  selectedDraftKey = draftKey(savedDraft);
+  if (selectSaved) {
+    selectedDraftKey = draftKey(savedDraft);
+  }
 }
 
 function isDraftActionArmed(action, draft) {
@@ -1356,7 +1423,6 @@ function renderRecovery() {
       </div>
       <p>${escapeHtml(record.solution || record.issues || record.moreInfo || "No record details listed.")}</p>
       <div class="recovery-card-meta">
-        <span>${escapeHtml(record.department || "General")}</span>
         <span>${escapeHtml(recoveryUpdatedText(item))}</span>
       </div>
       ${item.recoveryType === "Archived" && record.archiveReason ? `<p class="recovery-card-note">Reason: ${escapeHtml(record.archiveReason)}</p>` : ""}
@@ -1621,6 +1687,105 @@ function applyEditorValues(record) {
   return record;
 }
 
+function draftHasMeaningfulContent(record) {
+  if (!record) return false;
+  const title = normalize(record.title);
+  return Boolean(
+    (title && title !== "untitled draft") ||
+    normalize(record.issues) ||
+    normalize(record.solution) ||
+    normalize(record.moreInfo) ||
+    normalize(record.attachments) ||
+    normalize(record.source || record.relatedKbs)
+  );
+}
+
+function draftAutosaveSignature(draft, record) {
+  return JSON.stringify({
+    draftId: draft?.draftId || "",
+    version: draft?.version || 0,
+    recordId: draft?.recordId || record?.id || "",
+    title: record?.title || "",
+    department: record?.department || "",
+    system: record?.system || record?.escalation || "",
+    source: record?.source || record?.relatedKbs || "",
+    issues: record?.issues || "",
+    solution: record?.solution || "",
+    moreInfo: record?.moreInfo || "",
+    attachments: record?.attachments || ""
+  });
+}
+
+async function autosaveCurrentDraft() {
+  window.clearTimeout(draftAutosaveTimer);
+  draftAutosaveTimer = 0;
+
+  const draft = currentDraft();
+  const record = currentRecord();
+  if (!draft || !record || editorMode !== "draft" || !editorOpen) return;
+
+  applyEditorValues(record);
+  if (!draftHasMeaningfulContent(record)) return;
+
+  const signature = draftAutosaveSignature(draft, record);
+  if (signature === lastDraftAutosaveSignature) return;
+
+  if (draftAutosaveInFlight) {
+    draftAutosaveQueued = true;
+    return;
+  }
+
+  draftAutosaveInFlight = true;
+  const selectedKeyAtStart = selectedDraftKey;
+  setDataStatus("Autosaving draft", "warning");
+
+  try {
+    let savedDraft;
+    if (dataMode === "google-sheet") {
+      savedDraft = await autosaveDraftToBackend({
+        ...draft,
+        recordId: draft.recordId || record.id,
+        record
+      });
+      rememberSavedDraft(savedDraft, selectedDraftKey === selectedKeyAtStart);
+      setDataStatus("Draft autosaved", "ok");
+    } else {
+      savedDraft = {
+        ...draft,
+        version: draft.isUnsaved ? 1 : Number(draft.version || 1),
+        status: "Local Draft",
+        updatedAt: new Date().toISOString(),
+        isUnsaved: false,
+        record: structuredClone(record)
+      };
+      rememberSavedDraft(savedDraft, selectedDraftKey === selectedKeyAtStart);
+      setDataStatus("Draft autosaved locally", "warning");
+    }
+
+    lastDraftAutosaveSignature = draftAutosaveSignature(savedDraft, savedDraft.record);
+    writeBackendCache();
+    renderDrafts();
+    if (selectedDraftKey === draftKey(savedDraft)) {
+      renderAnswer(currentRecord());
+    }
+  } catch (error) {
+    console.error(error);
+    setDataStatus("Draft autosave failed", "error");
+  } finally {
+    draftAutosaveInFlight = false;
+    if (draftAutosaveQueued) {
+      draftAutosaveQueued = false;
+      scheduleDraftAutosave();
+    }
+  }
+}
+
+function scheduleDraftAutosave() {
+  if (editorMode !== "draft" || !editorOpen) return;
+  window.clearTimeout(draftAutosaveTimer);
+  draftAutosaveTimer = window.setTimeout(() => autosaveCurrentDraft(), DRAFT_AUTOSAVE_DELAY);
+}
+
 function render() {
   const visibleRecords = searchableRecords();
   fillSelect(fields.department, visibleRecords.map((record) => record.department));
@@ -1822,6 +1987,8 @@ function resetSelectionAndRender() {
   pendingDraftAction = "";
   pendingDraftActionExpires = 0;
   clearPendingRecordAction();
+  clearDraftAutosave();
+  lastDraftAutosaveSignature = "";
   clearArchiveReason();
   render();
 }
@@ -1856,16 +2023,25 @@ fields.toggleRecovery.addEventListener("click", () => {
   render();
 });
 
-fields.toggleEditor.addEventListener("click", () => {
+fields.toggleEditor.addEventListener("click", async () => {
+  if (editorOpen && editorMode === "draft") {
+    await autosaveCurrentDraft();
+  }
   editorOpen = !editorOpen;
   clearArchiveReason();
   render();
 });
 
-document.querySelector("#closeEditor").addEventListener("click", () => {
+document.querySelector("#closeEditor").addEventListener("click", async () => {
+  if (editorMode === "draft") {
+    await autosaveCurrentDraft();
+  }
   editorOpen = false;
   render();
 });
+
+fields.editor.addEventListener("input", scheduleDraftAutosave);
+fields.editor.addEventListener("change", scheduleDraftAutosave);
 
 fields.editor.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -1879,6 +2055,7 @@ fields.editor.addEventListener("submit", async (event) => {
     submitButton.textContent = savingDraft ? "Saving Draft..." : (dataMode === "google-sheet" ? "Saving..." : "Saving Draft...");
   }
 
+  clearDraftAutosave();
   applyEditorValues(record);
 
   try {
@@ -1960,7 +2137,16 @@ fields.publishDraft.addEventListener("click", async () => {
 fields.deleteDraft.addEventListener("click", async () => {
   const draft = currentDraft();
   if (!draft) return;
-  if (!requireDraftActionConfirmation("delete", draft)) return;
+  clearDraftAutosave();
+  const title = draft.record?.title || "Untitled draft";
+  const confirmed = await openConfirmDialog({
+    title: draft.isUnsaved ? "Discard this draft?" : "Delete this draft?",
+    body: draft.isUnsaved
+      ? `Draft: ${title}. This will be removed from this session.`
+      : `Draft: ${title}. This and its saved draft versions will be removed from Drafts. Published records are not affected.`,
+    confirmText: draft.isUnsaved ? "Discard Draft" : "Delete Draft"
+  });
+  if (!confirmed) return;
 
   try {
     if (draft.isUnsaved || dataMode !== "google-sheet") {
@@ -2019,6 +2205,14 @@ fields.archiveReasonPanel?.addEventListener("submit", async (event) => {
     return;
   }
 
+  const confirmed = await openConfirmDialog({
+    title: "Archive this record?",
+    body: `Record: ${record.title}. This will move out of active records and into Recovery with the archive reason you entered.`,
+    confirmText: "Archive Record",
+    danger: false
+  });
+  if (!confirmed) return;
+
   const submitButton = fields.archiveReasonPanel.querySelector("button[type='submit']");
   try {
     if (submitButton) {
@@ -2051,7 +2245,12 @@ fields.deleteRecord.addEventListener("click", async () => {
   const recoveryItem = currentRecoveryItem();
   const record = recoveryItem?.record || null;
   if (!record || recoveryItem?.recoveryType !== "Archived") return;
-  if (!requireRecordActionConfirmation("delete", recoveryItem)) return;
+  const confirmed = await openConfirmDialog({
+    title: "Delete this archived record?",
+    body: `Record: ${record.title}. This will move from Archived to Deleted Records. Use this only when it is no longer needed.`,
+    confirmText: "Delete Record"
+  });
+  if (!confirmed) return;
 
   try {
     setDataStatus("Deleting record...", "warning");
@@ -2102,6 +2301,38 @@ fields.restoreRecord.addEventListener("click", async () => {
     console.error(error);
     setDataStatus("Restore failed", "error");
     alert(`Unable to restore this record: ${error.message}`);
+  }
+});
+
+fields.cancelConfirmDialog?.addEventListener("click", () => closeConfirmDialog(false));
+fields.confirmDialogAction?.addEventListener("click", () => closeConfirmDialog(true));
+fields.confirmDialog?.addEventListener("click", (event) => {
+  if (event.target === fields.confirmDialog || event.target === fields.confirmDialog.querySelector(".confirm-dialog-backdrop")) {
+    closeConfirmDialog(false);
+  }
+});
+
+document.addEventListener("keydown", (event) => {
+  if (!activeConfirmDialog) return;
+
+  if (event.key === "Escape") {
+    event.preventDefault();
+    closeConfirmDialog(false);
+    return;
+  }
+
+  if (event.key !== "Tab") return;
+  const targets = confirmFocusTargets();
+  if (!targets.length) return;
+
+  const first = targets[0];
+  const last = targets[targets.length - 1];
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
   }
 });
 
